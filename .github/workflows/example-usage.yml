@@ -1,0 +1,41 @@
+# Example: Using mcp-test in CI/CD to validate your MCP server
+#
+# Copy this workflow into your MCP server repository and adjust the
+# --server command to match your server's entry point.
+
+name: MCP Compliance Check
+on: [push, pull_request]
+
+jobs:
+  mcp-compliance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run MCP compliance tests
+        run: |
+          npx mcp-test run \
+            --server "node your-mcp-server.js" \
+            --output json \
+            --fail-on critical \
+            > mcp-compliance-report.json
+
+      - name: Upload compliance report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mcp-compliance-report
+          path: mcp-compliance-report.json
+
+      - name: Show human-readable results
+        if: always()
+        run: |
+          npx mcp-test run \
+            --server "node your-mcp-server.js" \
+            --output human || true

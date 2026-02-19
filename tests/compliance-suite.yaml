@@ -1,0 +1,232 @@
+version: "1.0"
+spec_version: "2025-03-26"
+
+tests:
+  # ============================================================
+  # LIFECYCLE (4 critical tests)
+  # ============================================================
+  - id: "lifecycle-001"
+    category: "lifecycle"
+    name: "Initialize handshake completes successfully"
+    description: >
+      Server responds to initialize request with a valid result containing
+      protocolVersion (string), capabilities (object), and serverInfo (object
+      with name and version). The initialization phase MUST be the first
+      interaction between client and server.
+    severity: "critical"
+    spec_ref: "https://modelcontextprotocol.io/specification/2025-03-26/basic/lifecycle#initialization"
+
+  - id: "lifecycle-002"
+    category: "lifecycle"
+    name: "Server accepts initialized notification"
+    description: >
+      After receiving the initialize response, the client sends an
+      initialized notification. The server MUST accept this notification
+      without error. This completes the initialization handshake.
+    severity: "critical"
+    spec_ref: "https://modelcontextprotocol.io/specification/2025-03-26/basic/lifecycle#initialization"
+
+  - id: "lifecycle-003"
+    category: "lifecycle"
+    name: "Server response contains valid serverInfo"
+    description: >
+      The initialize response MUST include a serverInfo object with at
+      minimum a 'name' field (string). The 'version' field SHOULD also
+      be present.
+    severity: "critical"
+    spec_ref: "https://modelcontextprotocol.io/specification/2025-03-26/basic/lifecycle#initialization"
+
+  - id: "lifecycle-004"
+    category: "lifecycle"
+    name: "Server responds to ping after initialization"
+    description: >
+      After initialization completes, the server MUST respond to a
+      ping request with an empty result object {}. This verifies the
+      connection is alive and the server is responsive.
+    severity: "critical"
+    spec_ref: "https://modelcontextprotocol.io/specification/2025-03-26/basic/utilities/ping"
+
+  # ============================================================
+  # VERSION NEGOTIATION (2 tests)
+  # ============================================================
+  - id: "version-001"
+    category: "versioning"
+    name: "Server returns a valid protocol version"
+    description: >
+      The server MUST respond with a protocolVersion string in the
+      initialize response. If it supports the requested version, it
+      MUST respond with the same version. Otherwise, it MUST respond
+      with another version it supports.
+    severity: "critical"
+    spec_ref: "https://modelcontextprotocol.io/specification/2025-03-26/basic/lifecycle#version-negotiation"
+
+  - id: "version-002"
+    category: "versioning"
+    name: "Server capabilities object is well-formed"
+    description: >
+      The capabilities object in the initialize response MUST be a
+      valid object. Known capability keys (tools, resources, prompts,
+      logging, completions) SHOULD contain objects. Sub-capabilities
+      like listChanged and subscribe SHOULD be booleans when present.
+    severity: "major"
+    spec_ref: "https://modelcontextprotocol.io/specification/2025-03-26/basic/lifecycle#capability-negotiation"
+
+  # ============================================================
+  # TOOLS (4 tests)
+  # ============================================================
+  - id: "tools-001"
+    category: "tools"
+    name: "tools/list returns valid tool array"
+    description: >
+      If the server declares the tools capability, it MUST respond to
+      tools/list with a result containing a 'tools' array. Each tool
+      object MUST have a 'name' (string) and 'inputSchema' (valid
+      JSON Schema object). 'description' is RECOMMENDED.
+    severity: "critical"
+    spec_ref: "https://modelcontextprotocol.io/specification/2025-03-26/server/tools#listing-tools"
+
+  - id: "tools-002"
+    category: "tools"
+    name: "Tool inputSchema is valid JSON Schema"
+    description: >
+      Each tool's inputSchema MUST be a valid JSON Schema object with
+      at minimum 'type' set to 'object'. The schema defines the
+      expected parameters for the tool.
+    severity: "major"
+    spec_ref: "https://modelcontextprotocol.io/specification/2025-03-26/server/tools#listing-tools"
+
+  - id: "tools-003"
+    category: "tools"
+    name: "tools/call returns valid content result"
+    description: >
+      When a tool is called via tools/call, the server MUST respond
+      with a result containing a 'content' array. Each content item
+      MUST have a 'type' field (e.g. 'text', 'image', 'audio',
+      'resource'). Text items MUST have a 'text' field.
+    severity: "major"
+    spec_ref: "https://modelcontextprotocol.io/specification/2025-03-26/server/tools#calling-tools"
+
+  - id: "tools-004"
+    category: "tools"
+    name: "tools/call with unknown tool returns error"
+    description: >
+      Calling tools/call with a nonexistent tool name SHOULD return a
+      JSON-RPC error with code -32602 (Invalid params). The server
+      MUST NOT return a successful result for an unknown tool.
+    severity: "major"
+    spec_ref: "https://modelcontextprotocol.io/specification/2025-03-26/server/tools#error-handling"
+
+  # ============================================================
+  # RESOURCES (3 tests)
+  # ============================================================
+  - id: "resources-001"
+    category: "resources"
+    name: "resources/list returns valid resource array"
+    description: >
+      If the server declares the resources capability, it MUST respond
+      to resources/list with a result containing a 'resources' array.
+      Each resource MUST have 'uri' (string) and 'name' (string).
+      Optional fields: description, mimeType, size.
+    severity: "critical"
+    spec_ref: "https://modelcontextprotocol.io/specification/2025-03-26/server/resources#listing-resources"
+
+  - id: "resources-002"
+    category: "resources"
+    name: "resources/read returns valid contents"
+    description: >
+      When reading a resource via resources/read, the server MUST
+      respond with a result containing a 'contents' array. Each item
+      MUST have a 'uri' field and either 'text' (string) or 'blob'
+      (base64 string) content.
+    severity: "major"
+    spec_ref: "https://modelcontextprotocol.io/specification/2025-03-26/server/resources#reading-resources"
+
+  - id: "resources-003"
+    category: "resources"
+    name: "resources/read with invalid URI returns error"
+    description: >
+      Reading a resource with an invalid or nonexistent URI SHOULD
+      return a JSON-RPC error (code -32002 for not found, or -32602
+      for invalid params). The server MUST NOT crash or hang.
+    severity: "minor"
+    spec_ref: "https://modelcontextprotocol.io/specification/2025-03-26/server/resources#error-handling"
+
+  # ============================================================
+  # PROMPTS (2 tests)
+  # ============================================================
+  - id: "prompts-001"
+    category: "prompts"
+    name: "prompts/list returns valid prompt array"
+    description: >
+      If the server declares the prompts capability, it MUST respond
+      to prompts/list with a result containing a 'prompts' array.
+      Each prompt MUST have a 'name' (string). Optional fields:
+      description, arguments (array of argument objects).
+    severity: "critical"
+    spec_ref: "https://modelcontextprotocol.io/specification/2025-03-26/server/prompts#listing-prompts"
+
+  - id: "prompts-002"
+    category: "prompts"
+    name: "prompts/get returns valid messages"
+    description: >
+      When getting a prompt via prompts/get, the server MUST respond
+      with a result containing a 'messages' array. Each message MUST
+      have a 'role' (either 'user' or 'assistant') and 'content'
+      with a valid type field.
+    severity: "major"
+    spec_ref: "https://modelcontextprotocol.io/specification/2025-03-26/server/prompts#getting-a-prompt"
+
+  # ============================================================
+  # ERRORS (3 tests)
+  # ============================================================
+  - id: "errors-001"
+    category: "errors"
+    name: "Unknown method returns method-not-found error"
+    description: >
+      Sending a request with an unknown method MUST return a JSON-RPC
+      error with code -32601 (Method not found). The response MUST
+      include an 'error' object with 'code' and 'message' fields.
+    severity: "major"
+    spec_ref: "https://modelcontextprotocol.io/specification/2025-03-26/basic"
+
+  - id: "errors-002"
+    category: "errors"
+    name: "Invalid JSON-RPC request returns parse/invalid error"
+    description: >
+      Sending a malformed JSON-RPC message (missing jsonrpc field,
+      invalid id, etc.) SHOULD return an appropriate JSON-RPC error:
+      -32700 (Parse error) or -32600 (Invalid Request).
+    severity: "major"
+    spec_ref: "https://modelcontextprotocol.io/specification/2025-03-26/basic"
+
+  - id: "errors-003"
+    category: "errors"
+    name: "Error responses have required fields"
+    description: >
+      All JSON-RPC error responses MUST contain an 'error' object with
+      integer 'code' and string 'message' fields. A response MUST NOT
+      set both 'result' and 'error'. Error codes MUST be integers.
+    severity: "critical"
+    spec_ref: "https://modelcontextprotocol.io/specification/2025-03-26/basic"
+
+  # ============================================================
+  # JSON-RPC COMPLIANCE (2 tests)
+  # ============================================================
+  - id: "jsonrpc-001"
+    category: "jsonrpc"
+    name: "Responses include matching request ID"
+    description: >
+      Every JSON-RPC response MUST include the same 'id' as the
+      request it corresponds to. The 'jsonrpc' field MUST be "2.0".
+    severity: "critical"
+    spec_ref: "https://modelcontextprotocol.io/specification/2025-03-26/basic"
+
+  - id: "jsonrpc-002"
+    category: "jsonrpc"
+    name: "Server handles concurrent requests correctly"
+    description: >
+      The server MUST be able to handle multiple in-flight requests
+      and return responses with correct matching IDs. Responses MAY
+      arrive in any order.
+    severity: "minor"
+    spec_ref: "https://modelcontextprotocol.io/specification/2025-03-26/basic"

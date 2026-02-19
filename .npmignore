@@ -1,0 +1,7 @@
+src/
+tests/unit/
+.github/
+tsconfig.json
+*.test.ts
+node_modules/
+.git/
