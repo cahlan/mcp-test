@@ -13,7 +13,7 @@ The MCP ecosystem has hundreds of servers. No one knows if they actually follow 
 ## Quick Start
 
 ```bash
-npx mcp-test run --server "node my-server.js"
+npx @cahlan/mcp-test run --server "node my-server.js"
 ```
 
 That's it. One command. Works with any MCP server that speaks stdio.
@@ -55,7 +55,7 @@ By default, only failures are shown. Use `-v` for the full view above.
 
 ```bash
 # Run directly with npx (no install needed)
-npx mcp-test run --server "node my-server.js"
+npx @cahlan/mcp-test run --server "node my-server.js"
 
 # Or install globally
 npm install -g mcp-test
@@ -151,7 +151,7 @@ jobs:
       - run: npm ci
       - run: npm run build
       - name: Run MCP compliance tests
-        run: npx mcp-test@latest run --server "node dist/server.js" --output tap --fail-on critical
+        run: npx @cahlan/mcp-test@latest run --server "node dist/server.js" --output tap --fail-on critical
 ```
 
 ### TAP Output
