@@ -195,4 +195,83 @@ export const promptsChecks: Array<[string, CheckFn]> = [
       };
     }
   }],
+  /**
+   * prompts-003: prompts/list supports cursor-based pagination.
+   */
+  ['prompts-003', async (ctx: CheckContext): Promise<TestResult> => {
+    try {
+      const response = await ctx.sendRequest('prompts/list');
+
+      if (response.error) {
+        return {
+          test: ctx.test,
+          status: 'skip',
+          message: 'prompts/list returned error — cannot test pagination',
+          duration_ms: 0,
+        };
+      }
+
+      const result = response.result as Record<string, unknown>;
+      const nextCursor = result?.nextCursor as string | undefined;
+
+      if (!nextCursor) {
+        return {
+          test: ctx.test,
+          status: 'skip',
+          message: 'Server did not return nextCursor — pagination not applicable',
+          duration_ms: 0,
+        };
+      }
+
+      const page2 = await ctx.sendRequest('prompts/list', { cursor: nextCursor });
+
+      if (page2.error) {
+        return {
+          test: ctx.test,
+          status: 'fail',
+          message: `Pagination request with cursor failed: ${page2.error.message}`,
+          duration_ms: 0,
+        };
+      }
+
+      const page2Result = page2.result as Record<string, unknown>;
+      if (!page2Result || !Array.isArray(page2Result.prompts)) {
+        return {
+          test: ctx.test,
+          status: 'fail',
+          message: 'Paginated prompts/list must still return a "prompts" array',
+          duration_ms: 0,
+        };
+      }
+
+      const page1Prompts = (result.prompts as Array<Record<string, unknown>>).map(p => p.name);
+      const page2Prompts = (page2Result.prompts as Array<Record<string, unknown>>).map(p => p.name);
+
+      const page1Set = new Set(page1Prompts);
+      const allSame = page2Prompts.length > 0 && page2Prompts.every(n => page1Set.has(n));
+
+      if (allSame && page2Prompts.length === page1Prompts.length) {
+        return {
+          test: ctx.test,
+          status: 'fail',
+          message: 'Paginated response returned identical results to first page',
+          duration_ms: 0,
+        };
+      }
+
+      return {
+        test: ctx.test,
+        status: 'pass',
+        message: `Pagination works: page 1 has ${page1Prompts.length} prompts, page 2 has ${page2Prompts.length} prompts`,
+        duration_ms: 0,
+      };
+    } catch (err) {
+      return {
+        test: ctx.test,
+        status: 'error',
+        message: `Pagination test failed: ${err instanceof Error ? err.message : String(err)}`,
+        duration_ms: 0,
+      };
+    }
+  }],
 ];

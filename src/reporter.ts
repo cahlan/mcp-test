@@ -6,19 +6,19 @@
 import chalk from 'chalk';
 import type { SuiteResult, TestResult, Severity } from './types.js';
 
+const LINE = '─'.repeat(60);
+
 /**
  * Format results as human-readable terminal output.
  */
 export function formatHuman(result: SuiteResult): string {
   const lines: string[] = [];
 
+  // Header
   lines.push('');
-  lines.push(chalk.bold('  MCP Protocol Compliance Test'));
-  lines.push(chalk.dim(`  Server: ${result.server_command}`));
-  lines.push(chalk.dim(`  Protocol: ${result.protocol_version}`));
-  lines.push(chalk.dim(`  Time: ${result.timestamp}`));
-  lines.push('');
-  lines.push(chalk.dim('  ─'.repeat(35)));
+  lines.push(chalk.bold(`mcp-test v0.1.0`) + chalk.dim(` — Protocol Compliance Suite`));
+  lines.push(chalk.dim(`Testing: ${result.server_command}`));
+  lines.push(chalk.dim(LINE));
   lines.push('');
 
   // Group results by category
@@ -29,26 +29,48 @@ export function formatHuman(result: SuiteResult): string {
     categories.get(cat)!.push(r);
   }
 
+  // Category display names
+  const categoryNames: Record<string, string> = {
+    lifecycle: 'Lifecycle',
+    versioning: 'Versioning',
+    tools: 'Tools',
+    resources: 'Resources',
+    prompts: 'Prompts',
+    errors: 'Errors',
+    jsonrpc: 'JSON-RPC',
+  };
+
   for (const [category, tests] of categories) {
-    lines.push(chalk.bold(`  ${category.toUpperCase()}`));
-    lines.push('');
+    const displayName = categoryNames[category] || category.charAt(0).toUpperCase() + category.slice(1);
+    lines.push(chalk.bold(`  ${displayName}`));
 
     for (const r of tests) {
       const icon = statusIcon(r.status);
-      const dur = chalk.dim(`(${r.duration_ms}ms)`);
-      const sev = severityBadge(r.test.severity);
+      const id = chalk.dim(r.test.id.padEnd(16));
+      const name = r.test.name;
+      const dur = r.duration_ms > 0 ? chalk.dim(` ${r.duration_ms}ms`) : '';
 
-      lines.push(`  ${icon} ${r.test.id.padEnd(16)} ${r.test.name} ${dur} ${sev}`);
+      let statusDetail = '';
+      if (r.status === 'skip' && r.message) {
+        statusDetail = chalk.dim(` skipped`);
+      } else if (r.status === 'error') {
+        statusDetail = chalk.red(` error`);
+      } else if (r.status === 'fail') {
+        statusDetail = chalk.red(` failed`);
+      }
 
+      lines.push(`    ${icon} ${id} ${name}${dur}${statusDetail}`);
+
+      // Show details for failures/errors indented below
       if (r.status === 'fail' || r.status === 'error') {
         if (r.message) {
-          lines.push(chalk.red(`    ${r.message}`));
+          lines.push(chalk.red(`      ${r.message}`));
         }
         if (r.expected !== undefined) {
-          lines.push(chalk.dim(`    Expected: ${formatValue(r.expected)}`));
+          lines.push(chalk.dim(`      Expected: ${formatValue(r.expected)}`));
         }
         if (r.actual !== undefined) {
-          lines.push(chalk.dim(`    Actual:   ${formatValue(r.actual)}`));
+          lines.push(chalk.dim(`      Actual:   ${truncate(formatValue(r.actual), 200)}`));
         }
       }
     }
@@ -56,24 +78,64 @@ export function formatHuman(result: SuiteResult): string {
   }
 
   // Summary
-  lines.push(chalk.dim('  ─'.repeat(35)));
-  lines.push('');
+  lines.push(chalk.dim(LINE));
 
   const s = result.summary;
-  const passColor = s.failed === 0 && s.errors === 0 ? chalk.green : chalk.yellow;
-  lines.push(passColor(`  ${s.passed}/${s.total} passed`) +
-    (s.failed > 0 ? chalk.red(` | ${s.failed} failed`) : '') +
-    (s.errors > 0 ? chalk.red(` | ${s.errors} errors`) : '') +
-    (s.skipped > 0 ? chalk.dim(` | ${s.skipped} skipped`) : '') +
-    chalk.dim(` | ${result.duration_ms}ms total`)
-  );
 
+  // Results line
+  const parts: string[] = [];
+  if (s.passed > 0) parts.push(chalk.green(`${s.passed} passed`));
+  if (s.failed > 0) parts.push(chalk.red(`${s.failed} failed`));
+  if (s.errors > 0) parts.push(chalk.red(`${s.errors} error${s.errors > 1 ? 's' : ''}`));
+  if (s.skipped > 0) parts.push(chalk.dim(`${s.skipped} skipped`));
+  lines.push(`Results: ${parts.join(chalk.dim(' · '))}`);
+
+  // Compliance score with color
   const scoreColor = s.compliance_score >= 90 ? chalk.green
     : s.compliance_score >= 70 ? chalk.yellow
     : chalk.red;
-  lines.push(scoreColor(`  Compliance Score: ${s.compliance_score}%`));
-  lines.push('');
 
+  // Calculate per-severity scores
+  const criticalTests = getResultsBySeverity(result, 'critical');
+  const majorTests = getResultsBySeverity(result, 'major');
+
+  const criticalScore = computeScore(criticalTests);
+  const majorScore = computeScore(majorTests);
+
+  let scoreDetail = '';
+  if (criticalTests.length > 0 || majorTests.length > 0) {
+    const detailParts: string[] = [];
+    if (criticalTests.length > 0) detailParts.push(`critical: ${criticalScore}%`);
+    if (majorTests.length > 0) detailParts.push(`major: ${majorScore}%`);
+    scoreDetail = chalk.dim(` (${detailParts.join(' · ')})`);
+  }
+
+  lines.push(scoreColor(`Compliance Score: ${s.compliance_score}%`) + scoreDetail);
+
+  // Detailed failures section
+  const failures = result.results.filter(r => r.status === 'fail' || r.status === 'error');
+  if (failures.length > 0) {
+    lines.push('');
+
+    // Check if all failures have the same message (e.g., init failed)
+    const uniqueMessages = new Set(failures.map(f => f.message));
+    if (uniqueMessages.size === 1 && failures.length > 3) {
+      // Collapse repeated failures
+      const msg = failures[0].message;
+      lines.push(chalk.red.bold(`✗ All ${failures.length} tests failed:`));
+      lines.push(chalk.dim(`  ${msg}`));
+    } else {
+      lines.push(chalk.red.bold('✗ Failures:'));
+      for (const f of failures) {
+        lines.push(chalk.red(`  ${f.test.id}  ${f.test.name}`));
+        if (f.message) {
+          lines.push(chalk.dim(`    ${f.message}`));
+        }
+      }
+    }
+  }
+
+  lines.push('');
   return lines.join('\n');
 }
 
@@ -88,21 +150,28 @@ function statusIcon(status: string): string {
   switch (status) {
     case 'pass': return chalk.green('✓');
     case 'fail': return chalk.red('✗');
-    case 'skip': return chalk.dim('○');
+    case 'skip': return chalk.dim('─');
     case 'error': return chalk.red('⚠');
     default: return '?';
-  }
-}
-
-function severityBadge(severity: Severity): string {
-  switch (severity) {
-    case 'critical': return chalk.bgRed.white(' CRITICAL ');
-    case 'major': return chalk.bgYellow.black(' MAJOR ');
-    case 'minor': return chalk.dim('[minor]');
   }
 }
 
 function formatValue(val: unknown): string {
   if (typeof val === 'string') return val;
   return JSON.stringify(val);
+}
+
+function truncate(str: string, maxLen: number): string {
+  if (str.length <= maxLen) return str;
+  return str.slice(0, maxLen) + '…';
+}
+
+function getResultsBySeverity(result: SuiteResult, severity: Severity): TestResult[] {
+  return result.results.filter(r => r.test.severity === severity && r.status !== 'skip');
+}
+
+function computeScore(results: TestResult[]): number {
+  if (results.length === 0) return 100;
+  const passed = results.filter(r => r.status === 'pass').length;
+  return Math.round((passed / results.length) * 100);
 }

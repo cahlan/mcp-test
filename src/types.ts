@@ -84,14 +84,16 @@ export interface CheckContext {
   sendNotification: (method: string, params?: Record<string, unknown>) => void;
   /** Send raw JSON string to server stdin */
   sendRaw: (data: string) => void;
-  /** Read next message from server stdout */
-  readMessage: () => Promise<unknown>;
+  /** Read next notification/server-initiated message from server stdout */
+  readMessage: (timeoutMs?: number) => Promise<unknown>;
   /** The server capabilities from initialization */
   serverCapabilities: Record<string, unknown>;
   /** The server info from initialization */
   serverInfo: { name: string; version?: string };
   /** Timeout in ms */
   timeout: number;
+  /** The protocol version from initialization */
+  protocolVersion: string;
 }
 
 /**

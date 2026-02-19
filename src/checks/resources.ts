@@ -169,6 +169,165 @@ export const resourcesChecks: Array<[string, CheckFn]> = [
   }],
 
   /**
+   * resources-004: resources/list supports cursor-based pagination.
+   */
+  ['resources-004', async (ctx: CheckContext): Promise<TestResult> => {
+    try {
+      const response = await ctx.sendRequest('resources/list');
+
+      if (response.error) {
+        return {
+          test: ctx.test,
+          status: 'skip',
+          message: 'resources/list returned error — cannot test pagination',
+          duration_ms: 0,
+        };
+      }
+
+      const result = response.result as Record<string, unknown>;
+      const nextCursor = result?.nextCursor as string | undefined;
+
+      if (!nextCursor) {
+        return {
+          test: ctx.test,
+          status: 'skip',
+          message: 'Server did not return nextCursor — pagination not applicable',
+          duration_ms: 0,
+        };
+      }
+
+      const page2 = await ctx.sendRequest('resources/list', { cursor: nextCursor });
+
+      if (page2.error) {
+        return {
+          test: ctx.test,
+          status: 'fail',
+          message: `Pagination request with cursor failed: ${page2.error.message}`,
+          duration_ms: 0,
+        };
+      }
+
+      const page2Result = page2.result as Record<string, unknown>;
+      if (!page2Result || !Array.isArray(page2Result.resources)) {
+        return {
+          test: ctx.test,
+          status: 'fail',
+          message: 'Paginated resources/list must still return a "resources" array',
+          duration_ms: 0,
+        };
+      }
+
+      const page1Resources = (result.resources as Array<Record<string, unknown>>).map(r => r.uri);
+      const page2Resources = (page2Result.resources as Array<Record<string, unknown>>).map(r => r.uri);
+
+      const page1Set = new Set(page1Resources);
+      const allSame = page2Resources.length > 0 && page2Resources.every(u => page1Set.has(u));
+
+      if (allSame && page2Resources.length === page1Resources.length) {
+        return {
+          test: ctx.test,
+          status: 'fail',
+          message: 'Paginated response returned identical results to first page',
+          duration_ms: 0,
+        };
+      }
+
+      return {
+        test: ctx.test,
+        status: 'pass',
+        message: `Pagination works: page 1 has ${page1Resources.length} resources, page 2 has ${page2Resources.length} resources`,
+        duration_ms: 0,
+      };
+    } catch (err) {
+      return {
+        test: ctx.test,
+        status: 'error',
+        message: `Pagination test failed: ${err instanceof Error ? err.message : String(err)}`,
+        duration_ms: 0,
+      };
+    }
+  }],
+
+  /**
+   * resources-005: resources/templates/list returns valid template objects.
+   */
+  ['resources-005', async (ctx: CheckContext): Promise<TestResult> => {
+    try {
+      const response = await ctx.sendRequest('resources/templates/list');
+
+      if (response.error) {
+        // Server may not support templates — that's OK
+        return {
+          test: ctx.test,
+          status: 'skip',
+          message: `resources/templates/list not supported: ${response.error.message}`,
+          duration_ms: 0,
+        };
+      }
+
+      const result = response.result as Record<string, unknown>;
+      if (!result || !Array.isArray(result.resourceTemplates)) {
+        return {
+          test: ctx.test,
+          status: 'fail',
+          message: 'resources/templates/list must return a "resourceTemplates" array',
+          duration_ms: 0,
+          expected: '{ resourceTemplates: [...] }',
+          actual: result,
+        };
+      }
+
+      const templates = result.resourceTemplates as Array<Record<string, unknown>>;
+
+      if (templates.length === 0) {
+        return {
+          test: ctx.test,
+          status: 'pass',
+          message: 'Server returned empty templates list (valid)',
+          duration_ms: 0,
+        };
+      }
+
+      for (const tpl of templates) {
+        if (typeof tpl.uriTemplate !== 'string' || tpl.uriTemplate.length === 0) {
+          return {
+            test: ctx.test,
+            status: 'fail',
+            message: 'Each template MUST have a non-empty "uriTemplate" string',
+            duration_ms: 0,
+            expected: 'string',
+            actual: tpl.uriTemplate,
+          };
+        }
+        if (typeof tpl.name !== 'string' || tpl.name.length === 0) {
+          return {
+            test: ctx.test,
+            status: 'fail',
+            message: `Template "${tpl.uriTemplate}" MUST have a non-empty "name" string`,
+            duration_ms: 0,
+            expected: 'string',
+            actual: tpl.name,
+          };
+        }
+      }
+
+      return {
+        test: ctx.test,
+        status: 'pass',
+        message: `${templates.length} template(s) returned with valid structure`,
+        duration_ms: 0,
+      };
+    } catch (err) {
+      return {
+        test: ctx.test,
+        status: 'error',
+        message: `templates/list failed: ${err instanceof Error ? err.message : String(err)}`,
+        duration_ms: 0,
+      };
+    }
+  }],
+
+  /**
    * resources-003: resources/read with invalid URI returns error.
    */
   ['resources-003', async (ctx: CheckContext): Promise<TestResult> => {

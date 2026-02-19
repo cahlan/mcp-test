@@ -106,15 +106,23 @@ export async function runSuite(options: RunOptions, suitePath?: string): Promise
         sendRequest: (method, params) => conn.sendRequest(method, params, options.timeout),
         sendNotification: (method, params) => conn.sendNotification(method, params),
         sendRaw: (data) => conn.sendRaw(data),
-        readMessage: () => conn.readMessage(options.timeout),
+        readMessage: (timeoutMs?: number) => conn.readMessage(timeoutMs ?? options.timeout),
         serverCapabilities,
         serverInfo,
         timeout: options.timeout,
+        protocolVersion,
       };
 
       const testStart = Date.now();
       try {
-        const result = await checkFn(ctx);
+        // Wrap each check in a per-test timeout to prevent stuck tests
+        const perTestTimeout = options.timeout * 3; // generous per-test limit
+        const result = await Promise.race([
+          checkFn(ctx),
+          new Promise<TestResult>((_, reject) =>
+            setTimeout(() => reject(new Error(`Per-test timeout (${perTestTimeout}ms)`)), perTestTimeout)
+          ),
+        ]);
         result.duration_ms = Date.now() - testStart;
         results.push(result);
       } catch (err) {
@@ -124,6 +132,24 @@ export async function runSuite(options: RunOptions, suitePath?: string): Promise
           message: err instanceof Error ? err.message : String(err),
           duration_ms: Date.now() - testStart,
         });
+      }
+
+      // Check if server died mid-suite
+      if (conn.closed) {
+        // Mark remaining tests as errors
+        const remaining = tests.slice(tests.indexOf(test) + 1);
+        for (const rt of remaining) {
+          const checkExists = checks.has(rt.id);
+          results.push({
+            test: rt,
+            status: 'error',
+            message: checkExists
+              ? 'Server process exited unexpectedly during test suite'
+              : 'Check not implemented yet',
+            duration_ms: 0,
+          });
+        }
+        break;
       }
     }
 

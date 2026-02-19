@@ -116,8 +116,18 @@ tests:
     severity: "major"
     spec_ref: "https://modelcontextprotocol.io/specification/2025-03-26/server/tools#error-handling"
 
+  - id: "tools-005"
+    category: "tools"
+    name: "tools/list supports cursor-based pagination"
+    description: >
+      If the server returns a nextCursor in the tools/list response,
+      sending a subsequent request with that cursor MUST return a
+      different page of results. Auto-skips if no nextCursor is returned.
+    severity: "minor"
+    spec_ref: "https://modelcontextprotocol.io/specification/2025-03-26/server/tools#listing-tools"
+
   # ============================================================
-  # RESOURCES (3 tests)
+  # RESOURCES (5 tests)
   # ============================================================
   - id: "resources-001"
     category: "resources"
@@ -140,6 +150,26 @@ tests:
       (base64 string) content.
     severity: "major"
     spec_ref: "https://modelcontextprotocol.io/specification/2025-03-26/server/resources#reading-resources"
+
+  - id: "resources-004"
+    category: "resources"
+    name: "resources/list supports cursor-based pagination"
+    description: >
+      If the server returns a nextCursor in the resources/list response,
+      sending a subsequent request with that cursor MUST return a
+      different page of results. Auto-skips if no nextCursor is returned.
+    severity: "minor"
+    spec_ref: "https://modelcontextprotocol.io/specification/2025-03-26/server/resources#listing-resources"
+
+  - id: "resources-005"
+    category: "resources"
+    name: "resources/templates/list returns valid templates"
+    description: >
+      If the server supports resource templates, resources/templates/list
+      MUST return an array of template objects. Each template MUST have
+      a 'uriTemplate' (string) and 'name' (string) field.
+    severity: "minor"
+    spec_ref: "https://modelcontextprotocol.io/specification/2025-03-26/server/resources#resource-templates"
 
   - id: "resources-003"
     category: "resources"
@@ -175,6 +205,16 @@ tests:
       with a valid type field.
     severity: "major"
     spec_ref: "https://modelcontextprotocol.io/specification/2025-03-26/server/prompts#getting-a-prompt"
+
+  - id: "prompts-003"
+    category: "prompts"
+    name: "prompts/list supports cursor-based pagination"
+    description: >
+      If the server returns a nextCursor in the prompts/list response,
+      sending a subsequent request with that cursor MUST return a
+      different page of results. Auto-skips if no nextCursor is returned.
+    severity: "minor"
+    spec_ref: "https://modelcontextprotocol.io/specification/2025-03-26/server/prompts#listing-prompts"
 
   # ============================================================
   # ERRORS (3 tests)

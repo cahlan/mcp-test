@@ -305,4 +305,85 @@ export const toolsChecks: Array<[string, CheckFn]> = [
       };
     }
   }],
+
+  /**
+   * tools-005: tools/list supports cursor-based pagination.
+   */
+  ['tools-005', async (ctx: CheckContext): Promise<TestResult> => {
+    try {
+      const response = await ctx.sendRequest('tools/list');
+
+      if (response.error) {
+        return {
+          test: ctx.test,
+          status: 'skip',
+          message: 'tools/list returned error — cannot test pagination',
+          duration_ms: 0,
+        };
+      }
+
+      const result = response.result as Record<string, unknown>;
+      const nextCursor = result?.nextCursor as string | undefined;
+
+      if (!nextCursor) {
+        return {
+          test: ctx.test,
+          status: 'skip',
+          message: 'Server did not return nextCursor — pagination not applicable',
+          duration_ms: 0,
+        };
+      }
+
+      // Fetch the next page
+      const page2 = await ctx.sendRequest('tools/list', { cursor: nextCursor });
+
+      if (page2.error) {
+        return {
+          test: ctx.test,
+          status: 'fail',
+          message: `Pagination request with cursor failed: ${page2.error.message}`,
+          duration_ms: 0,
+        };
+      }
+
+      const page2Result = page2.result as Record<string, unknown>;
+      if (!page2Result || !Array.isArray(page2Result.tools)) {
+        return {
+          test: ctx.test,
+          status: 'fail',
+          message: 'Paginated tools/list must still return a "tools" array',
+          duration_ms: 0,
+        };
+      }
+
+      const page1Tools = (result.tools as Array<Record<string, unknown>>).map(t => t.name);
+      const page2Tools = (page2Result.tools as Array<Record<string, unknown>>).map(t => t.name);
+
+      const page1Set = new Set(page1Tools);
+      const allSame = page2Tools.length > 0 && page2Tools.every(n => page1Set.has(n));
+
+      if (allSame && page2Tools.length === page1Tools.length) {
+        return {
+          test: ctx.test,
+          status: 'fail',
+          message: 'Paginated response returned identical results to first page',
+          duration_ms: 0,
+        };
+      }
+
+      return {
+        test: ctx.test,
+        status: 'pass',
+        message: `Pagination works: page 1 has ${page1Tools.length} tools, page 2 has ${page2Tools.length} tools`,
+        duration_ms: 0,
+      };
+    } catch (err) {
+      return {
+        test: ctx.test,
+        status: 'error',
+        message: `Pagination test failed: ${err instanceof Error ? err.message : String(err)}`,
+        duration_ms: 0,
+      };
+    }
+  }],
 ];

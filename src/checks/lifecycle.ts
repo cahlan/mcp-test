@@ -193,23 +193,35 @@ export const lifecycleChecks: Array<[string, CheckFn]> = [
    * version-001: Server returns a valid protocol version.
    */
   ['version-001', async (ctx: CheckContext): Promise<TestResult> => {
-    // We already have the protocol version from init
-    // We need to re-validate it was sent in the response.
-    // Since initialization succeeded, protocolVersion was present.
-    // Let's do a more direct check by looking at what we got.
-
-    // The runner already validated init succeeded. Here we check the actual
-    // version string is a valid date-format version.
+    const version = ctx.protocolVersion;
     const versionPattern = /^\d{4}-\d{2}-\d{2}$/;
 
-    // We can't re-send initialize (the spec says it's a one-time thing).
-    // But we do have the protocolVersion from the CheckContext's serverCapabilities.
-    // The runner passes it through indirectly. For now, verify the server
-    // initialized with a valid version format. This is checked implicitly.
+    if (!version || typeof version !== 'string') {
+      return {
+        test: ctx.test,
+        status: 'fail',
+        message: 'Initialize response missing protocolVersion',
+        duration_ms: 0,
+        expected: 'date string (YYYY-MM-DD)',
+        actual: version,
+      };
+    }
+
+    if (!versionPattern.test(version)) {
+      return {
+        test: ctx.test,
+        status: 'fail',
+        message: `protocolVersion must be a date string (YYYY-MM-DD), got "${version}"`,
+        duration_ms: 0,
+        expected: 'YYYY-MM-DD format',
+        actual: version,
+      };
+    }
+
     return {
       test: ctx.test,
       status: 'pass',
-      message: 'Server returned a valid protocolVersion during initialization',
+      message: `Protocol version: ${version}`,
       duration_ms: 0,
     };
   }],

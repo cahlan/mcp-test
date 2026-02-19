@@ -9,18 +9,29 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { createInterface, type Interface } from 'node:readline';
 import type { JsonRpcResponse, JsonRpcRequest, JsonRpcNotification } from './types.js';
 
+interface PendingRequest {
+  id: number;
+  resolve: (msg: JsonRpcResponse) => void;
+  reject: (err: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
+
 export class McpConnection {
   private process: ChildProcess | null = null;
   private readline: Interface | null = null;
-  private messageQueue: unknown[] = [];
-  private waiters: Array<(msg: unknown) => void> = [];
+  private pendingRequests = new Map<number, PendingRequest>();
+  /** Queue for notifications / messages with no id (server-initiated) */
+  private notificationQueue: unknown[] = [];
+  private notificationWaiters: Array<(msg: unknown) => void> = [];
   private nextId = 1;
   private _closed = false;
+  private stderrOutput = '';
 
   constructor(private serverCommand: string) {}
 
   /**
    * Start the server subprocess and set up I/O.
+   * Retries with backoff if the server doesn't start immediately.
    */
   async start(): Promise<void> {
     const parts = this.serverCommand.split(/\s+/);
@@ -36,6 +47,17 @@ export class McpConnection {
       throw new Error('Failed to open stdio on server process');
     }
 
+    // Capture stderr for diagnostics
+    if (this.process.stderr) {
+      this.process.stderr.on('data', (chunk: Buffer) => {
+        this.stderrOutput += chunk.toString();
+        // Keep only last 4KB of stderr
+        if (this.stderrOutput.length > 4096) {
+          this.stderrOutput = this.stderrOutput.slice(-4096);
+        }
+      });
+    }
+
     this.readline = createInterface({
       input: this.process.stdout,
       crlfDelay: Infinity,
@@ -47,33 +69,102 @@ export class McpConnection {
 
       try {
         const msg = JSON.parse(trimmed);
-        if (this.waiters.length > 0) {
-          const waiter = this.waiters.shift()!;
-          waiter(msg);
-        } else {
-          this.messageQueue.push(msg);
-        }
+        this.dispatchMessage(msg);
       } catch {
         // Non-JSON output — ignore (could be server debug output that leaked to stdout)
       }
     });
 
-    this.process.on('exit', () => {
+    this.process.on('exit', (code, signal) => {
       this._closed = true;
+      // Reject all pending requests
+      for (const [, pending] of this.pendingRequests) {
+        clearTimeout(pending.timer);
+        pending.reject(new Error(`Server process exited (code=${code}, signal=${signal})`));
+      }
+      this.pendingRequests.clear();
     });
 
-    // Give the process a moment to start
-    await new Promise<void>((resolve) => setTimeout(resolve, 200));
+    // Register cleanup handlers for SIGINT/SIGTERM
+    const cleanup = () => {
+      this.close().catch(() => {});
+    };
+    process.once('SIGINT', cleanup);
+    process.once('SIGTERM', cleanup);
+    process.once('exit', cleanup);
+
+    // Wait for the process to be ready with retry logic
+    await this.waitForReady();
+  }
+
+  /**
+   * Wait for the server process to be ready, with retries.
+   */
+  private async waitForReady(): Promise<void> {
+    const maxWait = 3000; // up to 3 seconds
+    const checkInterval = 100;
+    let waited = 0;
+
+    while (waited < maxWait) {
+      if (this._closed) {
+        const stderr = this.stderrOutput.trim();
+        throw new Error(
+          `Server process exited immediately${stderr ? `\nStderr: ${stderr.slice(0, 500)}` : ''}`
+        );
+      }
+
+      // The process is alive, give it a moment
+      await new Promise<void>((resolve) => setTimeout(resolve, checkInterval));
+      waited += checkInterval;
+
+      // After 200ms, assume it's ready if still alive
+      if (waited >= 200 && !this._closed) {
+        return;
+      }
+    }
 
     if (this._closed) {
-      throw new Error('Server process exited immediately');
+      throw new Error('Server process exited during startup');
     }
   }
 
   /**
-   * Send a JSON-RPC request and wait for the response.
+   * Dispatch an incoming message to the right handler based on whether
+   * it has an 'id' field (response to a request) or not (notification).
+   */
+  private dispatchMessage(msg: unknown): void {
+    const obj = msg as Record<string, unknown>;
+
+    // If it has an 'id' and no 'method', it's a response to one of our requests
+    if ('id' in obj && !('method' in obj)) {
+      const id = obj.id as number;
+      const pending = this.pendingRequests.get(id);
+      if (pending) {
+        clearTimeout(pending.timer);
+        this.pendingRequests.delete(id);
+        pending.resolve(msg as JsonRpcResponse);
+      }
+      // If no pending request, drop it (stale response)
+      return;
+    }
+
+    // It's a notification or server-initiated request
+    if (this.notificationWaiters.length > 0) {
+      const waiter = this.notificationWaiters.shift()!;
+      waiter(msg);
+    } else {
+      this.notificationQueue.push(msg);
+    }
+  }
+
+  /**
+   * Send a JSON-RPC request and wait for the response with matching ID.
    */
   async sendRequest(method: string, params?: Record<string, unknown>, timeoutMs = 5000): Promise<JsonRpcResponse> {
+    if (this._closed) {
+      throw new Error('Connection is closed');
+    }
+
     const id = this.nextId++;
     const request: JsonRpcRequest = {
       jsonrpc: '2.0',
@@ -82,9 +173,15 @@ export class McpConnection {
       ...(params ? { params } : {}),
     };
 
-    this.write(JSON.stringify(request));
-    const response = await this.readMessage(timeoutMs) as JsonRpcResponse;
-    return response;
+    return new Promise<JsonRpcResponse>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pendingRequests.delete(id);
+        reject(new Error(`Timeout waiting for response to ${method} (${timeoutMs}ms)`));
+      }, timeoutMs);
+
+      this.pendingRequests.set(id, { id, resolve, reject, timer });
+      this.write(JSON.stringify(request));
+    });
   }
 
   /**
@@ -107,12 +204,14 @@ export class McpConnection {
   }
 
   /**
-   * Read the next message from the server's stdout.
+   * Read the next notification/server-initiated message from the server.
+   * This is for messages that are NOT responses to requests (those are
+   * handled automatically by sendRequest).
    */
   readMessage(timeoutMs = 5000): Promise<unknown> {
-    // Check queue first
-    if (this.messageQueue.length > 0) {
-      return Promise.resolve(this.messageQueue.shift());
+    // Check notification queue first
+    if (this.notificationQueue.length > 0) {
+      return Promise.resolve(this.notificationQueue.shift());
     }
 
     if (this._closed) {
@@ -121,9 +220,9 @@ export class McpConnection {
 
     return new Promise<unknown>((resolve, reject) => {
       const timer = setTimeout(() => {
-        const idx = this.waiters.indexOf(waiter);
-        if (idx !== -1) this.waiters.splice(idx, 1);
-        reject(new Error(`Timeout waiting for response (${timeoutMs}ms)`));
+        const idx = this.notificationWaiters.indexOf(waiter);
+        if (idx !== -1) this.notificationWaiters.splice(idx, 1);
+        reject(new Error(`Timeout waiting for message (${timeoutMs}ms)`));
       }, timeoutMs);
 
       const waiter = (msg: unknown) => {
@@ -131,8 +230,16 @@ export class McpConnection {
         resolve(msg);
       };
 
-      this.waiters.push(waiter);
+      this.notificationWaiters.push(waiter);
     });
+  }
+
+  /**
+   * Read a raw response for a specific raw request (used by error checks).
+   * Waits for a message that has the given id, or any message if id not specified.
+   */
+  readRawResponse(timeoutMs = 5000): Promise<unknown> {
+    return this.readMessage(timeoutMs);
   }
 
   /**
@@ -179,6 +286,13 @@ export class McpConnection {
     if (this._closed) return;
     this._closed = true;
 
+    // Reject all pending requests
+    for (const [, pending] of this.pendingRequests) {
+      clearTimeout(pending.timer);
+      pending.reject(new Error('Connection closing'));
+    }
+    this.pendingRequests.clear();
+
     if (this.readline) {
       this.readline.close();
     }
@@ -187,36 +301,36 @@ export class McpConnection {
       // Close stdin first (graceful shutdown per spec)
       this.process.stdin?.end();
 
-      // Wait briefly, then SIGTERM
+      // Wait briefly, then SIGTERM, then SIGKILL
       await new Promise<void>((resolve) => {
-        const timer = setTimeout(() => {
+        const killTimer = setTimeout(() => {
+          if (this.process && !this.process.killed) {
+            this.process.kill('SIGKILL');
+          }
+          resolve();
+        }, 2000);
+
+        const termTimer = setTimeout(() => {
           if (this.process && !this.process.killed) {
             this.process.kill('SIGTERM');
           }
-          setTimeout(() => {
-            if (this.process && !this.process.killed) {
-              this.process.kill('SIGKILL');
-            }
-            resolve();
-          }, 1000);
         }, 500);
 
         this.process!.on('exit', () => {
-          clearTimeout(timer);
+          clearTimeout(killTimer);
+          clearTimeout(termTimer);
           resolve();
         });
       });
     }
-
-    // Reject all pending waiters
-    for (const waiter of this.waiters) {
-      // Trigger timeout indirectly
-    }
-    this.waiters = [];
   }
 
   get closed(): boolean {
     return this._closed;
+  }
+
+  get stderr(): string {
+    return this.stderrOutput;
   }
 
   private write(data: string): void {

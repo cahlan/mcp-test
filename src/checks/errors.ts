@@ -75,40 +75,59 @@ export const errorsChecks: Array<[string, CheckFn]> = [
       // Send a malformed JSON-RPC request (missing jsonrpc field)
       ctx.sendRaw(JSON.stringify({ id: 99999, method: 'ping' }));
 
-      let response: unknown;
-      try {
-        response = await ctx.readMessage();
-      } catch {
-        // Server may not respond to invalid messages — that's acceptable
+      // Try to read a response, but filter out server-initiated notifications
+      // that may arrive asynchronously (e.g. notifications/tools/list_changed)
+      const deadline = Date.now() + 2000;
+      while (Date.now() < deadline) {
+        let response: unknown;
+        try {
+          const remaining = Math.max(500, deadline - Date.now());
+          response = await ctx.readMessage(remaining);
+        } catch {
+          // Timeout — server silently ignored malformed request
+          return {
+            test: ctx.test,
+            status: 'pass',
+            message: 'Server silently ignored malformed request (acceptable behavior)',
+            duration_ms: 0,
+          };
+        }
+
+        const resp = response as Record<string, unknown>;
+
+        // Skip server-initiated notifications (they have 'method' but no 'id')
+        if ('method' in resp && !('id' in resp)) {
+          continue; // Not a response to our malformed request
+        }
+
+        // If it's a response (has id), check if it's an error response
+        const rpcResp = resp as unknown as JsonRpcResponse;
+        if (rpcResp.error) {
+          return {
+            test: ctx.test,
+            status: 'pass',
+            message: `Malformed request rejected with error code ${rpcResp.error.code}`,
+            duration_ms: 0,
+          };
+        }
+
+        // Server responded with a result to our malformed request
         return {
           test: ctx.test,
-          status: 'pass',
-          message: 'Server silently ignored malformed request (acceptable behavior)',
+          status: 'fail',
+          message: 'Server processed malformed request without error',
           duration_ms: 0,
+          expected: 'JSON-RPC error (-32700 or -32600)',
+          actual: resp,
         };
       }
 
-      const resp = response as JsonRpcResponse;
-
-      // If it responded, it should be an error
-      if (resp.error) {
-        const validCodes = [-32700, -32600]; // Parse error, Invalid Request
-        return {
-          test: ctx.test,
-          status: 'pass',
-          message: `Malformed request rejected with error code ${resp.error.code}`,
-          duration_ms: 0,
-        };
-      }
-
-      // If it responded with a result, that's unexpected but not catastrophic
+      // If we get here, we only saw notifications, no actual response
       return {
         test: ctx.test,
-        status: 'fail',
-        message: 'Server processed malformed request without error',
+        status: 'pass',
+        message: 'Server silently ignored malformed request (acceptable behavior)',
         duration_ms: 0,
-        expected: 'JSON-RPC error (-32700 or -32600)',
-        actual: resp,
       };
     } catch (err) {
       return {
@@ -131,7 +150,6 @@ export const errorsChecks: Array<[string, CheckFn]> = [
 
       if (!response.error) {
         // If no error, we can't test error structure.
-        // Try another approach — just validate what we got.
         return {
           test: ctx.test,
           status: 'skip',
@@ -263,7 +281,7 @@ export const errorsChecks: Array<[string, CheckFn]> = [
         };
       }
 
-      // IDs should be different
+      // IDs should be different (our client assigns incrementing IDs)
       if (resp1.id === resp2.id) {
         return {
           test: ctx.test,
