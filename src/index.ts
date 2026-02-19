@@ -2,7 +2,7 @@
 
 import { Command } from 'commander';
 import { runSuite } from './runner.js';
-import { formatHuman, formatJson } from './reporter.js';
+import { formatHuman, formatJson, formatTap } from './reporter.js';
 import type { RunOptions, Severity } from './types.js';
 
 const program = new Command();
@@ -16,7 +16,8 @@ program
   .command('run')
   .description('Run compliance test suite against an MCP server')
   .requiredOption('-s, --server <command>', 'Command to start the MCP server (e.g. "node my-server.js")')
-  .option('-o, --output <format>', 'Output format: human | json', 'human')
+  .option('-o, --output <format>', 'Output format: human | json | tap', 'human')
+  .option('-v, --verbose', 'Show all tests including passing (default: failures only)')
   .option('--filter <category>', 'Only run tests in specified category (e.g. lifecycle, tools, errors)')
   .option('--timeout <ms>', 'Timeout per test in milliseconds', '5000')
   .option('--fail-on <severity>', 'Exit with code 1 if tests of this severity or higher fail: critical | major | minor', 'critical')
@@ -24,10 +25,11 @@ program
   .action(async (options) => {
     const runOptions: RunOptions = {
       server: options.server,
-      output: options.output as 'human' | 'json',
+      output: options.output as 'human' | 'json' | 'tap',
       filter: options.filter,
       timeout: parseInt(options.timeout, 10),
       failOn: options.failOn as Severity,
+      verbose: options.verbose ?? false,
     };
 
     try {
@@ -36,8 +38,10 @@ program
       // Output results
       if (runOptions.output === 'json') {
         console.log(formatJson(result));
+      } else if (runOptions.output === 'tap') {
+        console.log(formatTap(result));
       } else {
-        console.log(formatHuman(result));
+        console.log(formatHuman(result, runOptions.verbose));
       }
 
       // Determine exit code based on --fail-on severity

@@ -62,10 +62,11 @@ export interface ComplianceSuite {
  */
 export interface RunOptions {
   server: string;
-  output: 'human' | 'json';
+  output: 'human' | 'json' | 'tap';
   filter?: string;
   timeout: number;
   failOn: Severity;
+  verbose: boolean;
 }
 
 /**

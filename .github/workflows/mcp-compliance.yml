@@ -1,0 +1,32 @@
+# MCP Protocol Compliance — Example workflow for MCP server repos
+# Copy this to your MCP server repository and adjust the build/server commands.
+#
+# Usage: Add this file to your repo at .github/workflows/mcp-compliance.yml
+# Then adjust the "Build MCP server" and "Run MCP compliance tests" steps.
+
+name: MCP Protocol Compliance
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  compliance:
+    name: MCP Compliance Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build MCP server
+        run: npm run build  # adjust to your build command
+
+      - name: Run MCP compliance tests
+        run: npx mcp-test@latest run --server "node dist/server.js" --output tap --fail-on critical

@@ -22,6 +22,14 @@
     "cli"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cahlan/mcp-test.git"
+  },
+  "homepage": "https://github.com/cahlan/mcp-test",
+  "bugs": {
+    "url": "https://github.com/cahlan/mcp-test/issues"
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1",
     "commander": "^12.1.0",
@@ -42,6 +50,7 @@
   "files": [
     "dist",
     "tests/compliance-suite.yaml",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ]
 }

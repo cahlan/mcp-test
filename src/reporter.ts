@@ -1,6 +1,6 @@
 /**
  * Output formatting for mcp-test results.
- * Supports human-readable and JSON output modes.
+ * Supports human-readable, JSON, and TAP output modes.
  */
 
 import chalk from 'chalk';
@@ -10,8 +10,9 @@ const LINE = '─'.repeat(60);
 
 /**
  * Format results as human-readable terminal output.
+ * When verbose is false (default), only failures and summary are shown.
  */
-export function formatHuman(result: SuiteResult): string {
+export function formatHuman(result: SuiteResult, verbose = false): string {
   const lines: string[] = [];
 
   // Header
@@ -42,9 +43,17 @@ export function formatHuman(result: SuiteResult): string {
 
   for (const [category, tests] of categories) {
     const displayName = categoryNames[category] || category.charAt(0).toUpperCase() + category.slice(1);
+
+    // In non-verbose mode, skip categories with no failures
+    const hasFailures = tests.some(r => r.status === 'fail' || r.status === 'error');
+    if (!verbose && !hasFailures) continue;
+
     lines.push(chalk.bold(`  ${displayName}`));
 
     for (const r of tests) {
+      // In non-verbose mode, skip passing and skipped tests
+      if (!verbose && r.status !== 'fail' && r.status !== 'error') continue;
+
       const icon = statusIcon(r.status);
       const id = chalk.dim(r.test.id.padEnd(16));
       const name = r.test.name;
@@ -112,30 +121,84 @@ export function formatHuman(result: SuiteResult): string {
 
   lines.push(scoreColor(`Compliance Score: ${s.compliance_score}%`) + scoreDetail);
 
-  // Detailed failures section
-  const failures = result.results.filter(r => r.status === 'fail' || r.status === 'error');
-  if (failures.length > 0) {
-    lines.push('');
+  // Detailed failures section (only in verbose mode — in non-verbose, failures are already the main content)
+  if (verbose) {
+    const failures = result.results.filter(r => r.status === 'fail' || r.status === 'error');
+    if (failures.length > 0) {
+      lines.push('');
 
-    // Check if all failures have the same message (e.g., init failed)
-    const uniqueMessages = new Set(failures.map(f => f.message));
-    if (uniqueMessages.size === 1 && failures.length > 3) {
-      // Collapse repeated failures
-      const msg = failures[0].message;
-      lines.push(chalk.red.bold(`✗ All ${failures.length} tests failed:`));
-      lines.push(chalk.dim(`  ${msg}`));
-    } else {
-      lines.push(chalk.red.bold('✗ Failures:'));
-      for (const f of failures) {
-        lines.push(chalk.red(`  ${f.test.id}  ${f.test.name}`));
-        if (f.message) {
-          lines.push(chalk.dim(`    ${f.message}`));
+      // Check if all failures have the same message (e.g., init failed)
+      const uniqueMessages = new Set(failures.map(f => f.message));
+      if (uniqueMessages.size === 1 && failures.length > 3) {
+        // Collapse repeated failures
+        const msg = failures[0].message;
+        lines.push(chalk.red.bold(`✗ All ${failures.length} tests failed:`));
+        lines.push(chalk.dim(`  ${msg}`));
+      } else {
+        lines.push(chalk.red.bold('✗ Failures:'));
+        for (const f of failures) {
+          lines.push(chalk.red(`  ${f.test.id}  ${f.test.name}`));
+          if (f.message) {
+            lines.push(chalk.dim(`    ${f.message}`));
+          }
         }
       }
     }
   }
 
   lines.push('');
+  return lines.join('\n');
+}
+
+/**
+ * Format results as TAP (Test Anything Protocol) version 14.
+ * Compatible with most CI systems natively.
+ */
+export function formatTap(result: SuiteResult): string {
+  const lines: string[] = [];
+  lines.push('TAP version 14');
+  lines.push(`1..${result.results.length}`);
+
+  let testNum = 0;
+  for (const r of result.results) {
+    testNum++;
+    const description = `${r.test.id} ${r.test.name}`;
+
+    switch (r.status) {
+      case 'pass':
+        lines.push(`ok ${testNum} - ${description}`);
+        break;
+
+      case 'fail':
+        lines.push(`not ok ${testNum} - ${description}`);
+        lines.push('  ---');
+        if (r.message) lines.push(`  message: ${yamlEscape(r.message)}`);
+        lines.push(`  severity: ${r.test.severity}`);
+        if (r.expected !== undefined) lines.push(`  expected: ${yamlEscape(formatValue(r.expected))}`);
+        if (r.actual !== undefined) lines.push(`  actual: ${yamlEscape(truncate(formatValue(r.actual), 200))}`);
+        lines.push('  ...');
+        break;
+
+      case 'error':
+        lines.push(`not ok ${testNum} - ${description}`);
+        lines.push('  ---');
+        if (r.message) lines.push(`  message: ${yamlEscape(r.message)}`);
+        lines.push(`  severity: ${r.test.severity}`);
+        lines.push(`  type: error`);
+        lines.push('  ...');
+        break;
+
+      case 'skip':
+        lines.push(`ok ${testNum} - ${description} # SKIP ${r.message || 'skipped'}`);
+        break;
+    }
+  }
+
+  // Add summary as a diagnostic comment
+  const s = result.summary;
+  lines.push(`# Tests: ${s.total}, Passed: ${s.passed}, Failed: ${s.failed}, Errors: ${s.errors}, Skipped: ${s.skipped}`);
+  lines.push(`# Compliance Score: ${s.compliance_score}%`);
+
   return lines.join('\n');
 }
 
@@ -164,6 +227,14 @@ function formatValue(val: unknown): string {
 function truncate(str: string, maxLen: number): string {
   if (str.length <= maxLen) return str;
   return str.slice(0, maxLen) + '…';
+}
+
+function yamlEscape(str: string): string {
+  // Simple YAML escaping for TAP diagnostic blocks
+  if (str.includes('\n') || str.includes('"') || str.includes("'")) {
+    return `"${str.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n')}"`;
+  }
+  return str;
 }
 
 function getResultsBySeverity(result: SuiteResult, severity: Severity): TestResult[] {

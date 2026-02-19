@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatJson } from '../../src/reporter.js';
+import { formatJson, formatTap, formatHuman } from '../../src/reporter.js';
 import type { SuiteResult } from '../../src/types.js';
 
 const mockResult: SuiteResult = {
@@ -94,6 +94,61 @@ describe('Reporter', () => {
       expect(failed.message).toBeDefined();
       expect(failed.expected).toBeDefined();
       expect(failed.actual).toBeDefined();
+    });
+  });
+
+  describe('formatTap', () => {
+    it('should start with TAP version 14 header', () => {
+      const output = formatTap(mockResult);
+      expect(output).toMatch(/^TAP version 14\n/);
+    });
+
+    it('should include plan line with correct count', () => {
+      const output = formatTap(mockResult);
+      expect(output).toContain('1..3');
+    });
+
+    it('should mark passing tests as ok', () => {
+      const output = formatTap(mockResult);
+      expect(output).toContain('ok 1 - lifecycle-001 Initialize handshake completes successfully');
+      expect(output).toContain('ok 2 - lifecycle-002 Server accepts initialized notification');
+    });
+
+    it('should mark failing tests as not ok', () => {
+      const output = formatTap(mockResult);
+      expect(output).toContain('not ok 3 - tools-001 tools/list returns valid tool array');
+    });
+
+    it('should include YAML diagnostics for failures', () => {
+      const output = formatTap(mockResult);
+      expect(output).toContain('  ---');
+      expect(output).toContain('  severity: critical');
+      expect(output).toContain('  ...');
+    });
+
+    it('should include summary comments', () => {
+      const output = formatTap(mockResult);
+      expect(output).toContain('# Tests: 3');
+      expect(output).toContain('# Compliance Score: 75%');
+    });
+  });
+
+  describe('formatHuman', () => {
+    it('non-verbose should only show failures', () => {
+      const output = formatHuman(mockResult, false);
+      expect(output).toContain('tools-001');
+      expect(output).not.toContain('lifecycle-001');
+    });
+
+    it('verbose should show all tests', () => {
+      const output = formatHuman(mockResult, true);
+      expect(output).toContain('tools-001');
+      expect(output).toContain('lifecycle-001');
+    });
+
+    it('should include compliance score', () => {
+      const output = formatHuman(mockResult, false);
+      expect(output).toContain('75%');
     });
   });
 });

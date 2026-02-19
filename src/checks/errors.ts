@@ -76,12 +76,15 @@ export const errorsChecks: Array<[string, CheckFn]> = [
       ctx.sendRaw(JSON.stringify({ id: 99999, method: 'ping' }));
 
       // Try to read a response, but filter out server-initiated notifications
-      // that may arrive asynchronously (e.g. notifications/tools/list_changed)
-      const deadline = Date.now() + 2000;
+      // that may arrive asynchronously (e.g. notifications/tools/list_changed).
+      // Use a short timeout (500ms) — servers that respond to malformed requests
+      // do so quickly; there's no reason to wait the full test timeout.
+      const SHORT_TIMEOUT = 500;
+      const deadline = Date.now() + 1500;
       while (Date.now() < deadline) {
         let response: unknown;
         try {
-          const remaining = Math.max(500, deadline - Date.now());
+          const remaining = Math.min(SHORT_TIMEOUT, Math.max(100, deadline - Date.now()));
           response = await ctx.readMessage(remaining);
         } catch {
           // Timeout — server silently ignored malformed request
