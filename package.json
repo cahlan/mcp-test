@@ -1,6 +1,6 @@
 {
   "name": "@cahlan/mcp-test",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Protocol compliance testing CLI for MCP servers",
   "main": "./dist/index.js",
   "bin": {
