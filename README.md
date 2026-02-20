@@ -8,15 +8,19 @@
 
 The MCP ecosystem has hundreds of servers. No one knows if they actually follow the spec. Until now.
 
-`mcp-test` runs 24 automated compliance checks against any MCP server over stdio, validating the initialization handshake, version negotiation, tool/resource/prompt schemas, error handling, and JSON-RPC correctness — all against the [official MCP specification](https://modelcontextprotocol.io/specification/2025-03-26).
+`mcp-test` runs 24 automated compliance checks against any MCP server, validating the initialization handshake, version negotiation, tool/resource/prompt schemas, error handling, and JSON-RPC correctness — all against the [official MCP specification](https://modelcontextprotocol.io/specification/2025-03-26). Supports both **stdio** and **Streamable HTTP** transports.
 
 ## Quick Start
 
 ```bash
+# Test a stdio server
 npx @cahlan/mcp-test run --server "node my-server.js"
+
+# Test an HTTP server (Streamable HTTP transport)
+npx @cahlan/mcp-test run --url http://localhost:3000
 ```
 
-That's it. One command. Works with any MCP server that speaks stdio.
+That's it. One command. Works with any MCP server — stdio or HTTP.
 
 ## What It Looks Like
 
@@ -56,10 +60,12 @@ By default, only failures are shown. Use `-v` for the full view above.
 ```bash
 # Run directly with npx (no install needed)
 npx @cahlan/mcp-test run --server "node my-server.js"
+npx @cahlan/mcp-test run --url http://localhost:3000
 
 # Or install globally
 npm install -g mcp-test
 mcp-test run --server "python my_server.py"
+mcp-test run --url http://localhost:3000
 ```
 
 ## Usage
@@ -67,8 +73,11 @@ mcp-test run --server "python my_server.py"
 ### Run compliance tests
 
 ```bash
-# Basic usage
+# Basic usage — stdio transport
 mcp-test run --server "node dist/server.js"
+
+# HTTP transport (Streamable HTTP)
+mcp-test run --url http://localhost:3000
 
 # Show all tests (not just failures)
 mcp-test run --server "node dist/server.js" --verbose
@@ -123,6 +132,35 @@ Tests are automatically skipped when they don't apply:
 - Tool tests skip if the server doesn't declare `tools` capability
 - Resource tests skip if the server doesn't declare `resources` capability
 - Pagination tests skip if the server doesn't return `nextCursor`
+
+## Transports
+
+`mcp-test` supports two MCP transport mechanisms:
+
+### stdio (default)
+
+Spawns the server as a subprocess and communicates over stdin/stdout:
+
+```bash
+npx @cahlan/mcp-test run --server "node my-server.js"
+npx @cahlan/mcp-test run --server "python my_server.py"
+```
+
+### Streamable HTTP
+
+Connects to a running MCP HTTP server. Start your server first, then point `mcp-test` at it:
+
+```bash
+npx @cahlan/mcp-test run --url http://localhost:3000
+```
+
+The tool will POST JSON-RPC requests to `{url}/mcp` following the [MCP Streamable HTTP transport spec](https://spec.modelcontextprotocol.io/specification/basic/transports/#streamable-http). Features:
+
+- Automatic SSE and plain JSON response handling
+- Session management via `mcp-session-id` header
+- Session termination via HTTP DELETE on close
+
+> **Note:** `--server` and `--url` are mutually exclusive — use one or the other.
 
 ## CI Integration
 

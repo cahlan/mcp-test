@@ -61,7 +61,10 @@ export interface ComplianceSuite {
  * Options passed from the CLI to the test runner.
  */
 export interface RunOptions {
+  /** Command to start the MCP server via stdio transport */
   server: string;
+  /** URL of a running MCP HTTP server (Streamable HTTP transport) */
+  serverUrl?: string;
   output: 'human' | 'json' | 'tap';
   filter?: string;
   timeout: number;
