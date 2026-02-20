@@ -15,7 +15,8 @@ program
 program
   .command('run')
   .description('Run compliance test suite against an MCP server')
-  .requiredOption('-s, --server <command>', 'Command to start the MCP server (e.g. "node my-server.js")')
+  .option('-s, --server <command>', 'Command to start the MCP server via stdio (e.g. "node my-server.js")')
+  .option('-u, --url <url>', 'URL of running MCP HTTP server (e.g. http://localhost:3000)')
   .option('-o, --output <format>', 'Output format: human | json | tap', 'human')
   .option('-v, --verbose', 'Show all tests including passing (default: failures only)')
   .option('--filter <category>', 'Only run tests in specified category (e.g. lifecycle, tools, errors)')
@@ -23,8 +24,27 @@ program
   .option('--fail-on <severity>', 'Exit with code 1 if tests of this severity or higher fail: critical | major | minor', 'critical')
   .option('--suite <path>', 'Path to custom compliance suite YAML', undefined)
   .action(async (options) => {
+    // Validate mutual exclusion
+    if (options.server && options.url) {
+      console.error('Error: --server and --url are mutually exclusive. Use one or the other.');
+      console.error('');
+      console.error('Examples:');
+      console.error('  mcp-test run --server "node my-server.js"    # stdio transport');
+      console.error('  mcp-test run --url http://localhost:3000      # Streamable HTTP transport');
+      process.exit(2);
+    }
+    if (!options.server && !options.url) {
+      console.error('Error: Either --server or --url is required.');
+      console.error('');
+      console.error('Examples:');
+      console.error('  mcp-test run --server "node my-server.js"    # stdio transport');
+      console.error('  mcp-test run --url http://localhost:3000      # Streamable HTTP transport');
+      process.exit(2);
+    }
+
     const runOptions: RunOptions = {
-      server: options.server,
+      server: options.server ?? options.url,
+      serverUrl: options.url,
       output: options.output as 'human' | 'json' | 'tap',
       filter: options.filter,
       timeout: parseInt(options.timeout, 10),

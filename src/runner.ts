@@ -7,6 +7,7 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as yaml from 'js-yaml';
 import { McpConnection } from './connection.js';
+import { McpHttpConnection } from './http-connection.js';
 import type {
   ComplianceSuite,
   RunOptions,
@@ -17,6 +18,9 @@ import type {
   CheckFn,
 } from './types.js';
 import { getChecks } from './checks/index.js';
+
+/** Union type for either stdio or HTTP connection */
+type AnyConnection = McpConnection | McpHttpConnection;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -48,8 +52,10 @@ export async function runSuite(options: RunOptions, suitePath?: string): Promise
   const checks = getChecks();
   const results: TestResult[] = [];
 
-  // Spawn server and connect
-  const conn = new McpConnection(options.server);
+  // Create connection based on transport type
+  const conn: AnyConnection = options.serverUrl
+    ? new McpHttpConnection(options.serverUrl)
+    : new McpConnection(options.server);
 
   try {
     await conn.start();
@@ -160,6 +166,13 @@ export async function runSuite(options: RunOptions, suitePath?: string): Promise
 }
 
 /**
+ * Get the display label for the server being tested.
+ */
+function getServerLabel(options: RunOptions): string {
+  return options.serverUrl || options.server;
+}
+
+/**
  * Determine if a test should be skipped because the server lacks the needed capability.
  */
 function shouldSkipForCapability(test: TestCase, capabilities: Record<string, unknown>): boolean {
@@ -200,7 +213,7 @@ function buildSuiteResult(
     : 100;
 
   return {
-    server_command: options.server,
+    server_command: getServerLabel(options),
     timestamp: new Date().toISOString(),
     duration_ms: Date.now() - startTime,
     protocol_version: protocolVersion,
